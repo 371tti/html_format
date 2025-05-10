@@ -7,7 +7,6 @@ use syn::{
     punctuated::Punctuated, Expr, Ident, LitStr, Token,
 };
 
-/* ===== 入力 DSL ===================================================== */
 struct Input {
     tpl: LitStr,
     pairs: Punctuated<(Ident, Expr), Token![,]>,
@@ -30,7 +29,6 @@ impl Parse for Input {
     }
 }
 
-/* ===== {{ key }} → {key} ＆ エスケープ解析 ========================= */
 fn parse_template(raw: &str) -> (Vec<String>, Vec<String>, usize) {
     let mut lit_parts = Vec::<String>::new();
     let mut keys      = Vec::<String>::new();
@@ -68,16 +66,13 @@ fn parse_template(raw: &str) -> (Vec<String>, Vec<String>, usize) {
     (lit_parts, keys, lit_len)
 }
 
-/* ===== proc-macro entry ============================================ */
 #[proc_macro]
 pub fn html_format(input: TokenStream) -> TokenStream {
     let Input { tpl, pairs } = syn::parse_macro_input!(input as Input);
 
-    /* ---- compile-time template parsing ---- */
     let raw = tpl.value();
     let (lit_parts, keys_in_tpl, lit_len) = parse_template(&raw);
 
-    /* ---- キー/値 のトークン列を用意 ---- */
     let mut val_map = std::collections::HashMap::<String, TokenStream2>::new();
     for (id, expr) in pairs {
         val_map.insert(id.to_string(), expr.into_token_stream());
@@ -98,13 +93,11 @@ pub fn html_format(input: TokenStream) -> TokenStream {
         }
     }
 
-    /* ---- リテラルを LitStr に変換 ---- */
     let lit_tokens: Vec<LitStr> = lit_parts
         .iter()
         .map(|s| LitStr::new(s, tpl.span()))
         .collect();
 
-    /* ---- interleave code generation ---- */
     let mut interleave = TokenStream2::new();
     for (lit, val) in lit_tokens.iter().take(vals_ts.len()).zip(vals_ts.iter()) {
         interleave.extend(quote! {
