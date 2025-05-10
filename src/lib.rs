@@ -31,30 +31,63 @@ fn parse_literal_tpl(raw: &str) -> (Vec<String>, Vec<String>, usize) {
     let mut lit = Vec::new();
     let mut keys = Vec::new();
     let mut buf = String::new();
-    let bytes = raw.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'{' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
-            if !buf.is_empty() { lit.push(std::mem::take(&mut buf)); }
-            i += 2;
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-            let start = i;
-            while i < bytes.len() && bytes[i] != b'}' { i += 1; }
-            keys.push(raw[start..i].trim().to_string());
-            i += 2;
-        } else {
-            match bytes[i] {
-                b'{' => buf.push_str("{{"),
-                b'}' => buf.push_str("}}"),
-                _    => buf.push(bytes[i] as char),
+    let mut chars = raw.char_indices().peekable();
+    let mut last_i = 0;
+
+    while let Some((i, c)) = chars.next() {
+        if c == '{' {
+            if let Some(&(_, '{')) = chars.peek() {
+                chars.next(); // skip second {
+                if !buf.is_empty() {
+                    lit.push(std::mem::take(&mut buf));
+                }
+                // skip whitespace (including full-width)
+                while let Some(&(_, ch)) = chars.peek() {
+                    if ch.is_whitespace() {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+
+                // collect key until `}`
+                let start = chars.peek().map(|(i, _)| *i).unwrap_or(i);
+                let mut end = start;
+                while let Some(&(j, ch)) = chars.peek() {
+                    if ch == '}' {
+                        end = j;
+                        break;
+                    }
+                    chars.next();
+                }
+
+                // skip closing "}}"
+                chars.next(); // consume first }
+                chars.next(); // consume second }
+
+                let key = raw[start..end].trim().to_string();
+                keys.push(key);
+                last_i = end + 2;
+                continue;
             }
-            i += 1;
         }
+
+        match c {
+            '{' => buf.push_str("{{"),
+            '}' => buf.push_str("}}"),
+            _ => buf.push(c),
+        }
+        last_i = i + c.len_utf8();
     }
-    if !buf.is_empty() { lit.push(buf); }
+
+    if !buf.is_empty() {
+        lit.push(buf);
+    }
+
     let len = lit.iter().map(|s| s.len()).sum();
     (lit, keys, len)
 }
+
 
 #[proc_macro]
 pub fn html_format(input: TokenStream) -> TokenStream {
