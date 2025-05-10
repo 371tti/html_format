@@ -10,6 +10,7 @@ struct Input {
     tpl: Expr,
     pairs: Punctuated<(Ident, Expr), Token![,]>,
 }
+
 impl Parse for Input {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let tpl: Expr = input.parse()?;
@@ -28,66 +29,42 @@ impl Parse for Input {
 }
 
 fn parse_literal_tpl(raw: &str) -> (Vec<String>, Vec<String>, usize) {
-    let mut lit = Vec::new();
+    let mut lit: Vec<String> = Vec::new();
     let mut keys = Vec::new();
-    let mut buf = String::new();
-    let mut chars = raw.char_indices().peekable();
-    let mut last_i = 0;
+    let mut last = 0;
+    let chars: Vec<char> = raw.chars().collect();
+    let mut i = 0;
 
-    while let Some((i, c)) = chars.next() {
-        if c == '{' {
-            if let Some(&(_, '{')) = chars.peek() {
-                chars.next(); // skip second {
-                if !buf.is_empty() {
-                    lit.push(std::mem::take(&mut buf));
-                }
-                // skip whitespace (including full-width)
-                while let Some(&(_, ch)) = chars.peek() {
-                    if ch.is_whitespace() {
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
-
-                // collect key until `}`
-                let start = chars.peek().map(|(i, _)| *i).unwrap_or(i);
-                let mut end = start;
-                while let Some(&(j, ch)) = chars.peek() {
-                    if ch == '}' {
-                        end = j;
-                        break;
-                    }
-                    chars.next();
-                }
-
-                // skip closing "}}"
-                chars.next(); // consume first }
-                chars.next(); // consume second }
-
-                let key = raw[start..end].trim().to_string();
-                keys.push(key);
-                last_i = end + 2;
-                continue;
+    while i < chars.len() {
+        if chars[i] == '{' && i + 1 < chars.len() && chars[i + 1] == '{' {
+            if last < i {
+                lit.push(chars[last..i].iter().collect());
             }
-        }
+            i += 2;
 
-        match c {
-            '{' => buf.push_str("{{"),
-            '}' => buf.push_str("}}"),
-            _ => buf.push(c),
+            while i < chars.len() && chars[i].is_whitespace() {
+                i += 1;
+            }
+            let start = i;
+            while i < chars.len() && chars[i] != '}' {
+                i += 1;
+            }
+            let key = chars[start..i].iter().collect::<String>().trim().to_string();
+            keys.push(key);
+            i += 2;
+            last = i;
+        } else {
+            i += 1;
         }
-        last_i = i + c.len_utf8();
     }
 
-    if !buf.is_empty() {
-        lit.push(buf);
+    if last < chars.len() {
+        lit.push(chars[last..].iter().collect());
     }
 
     let len = lit.iter().map(|s| s.len()).sum();
     (lit, keys, len)
 }
-
 
 #[proc_macro]
 pub fn html_format(input: TokenStream) -> TokenStream {
@@ -141,29 +118,37 @@ pub fn html_format(input: TokenStream) -> TokenStream {
             quote! {{
                 let raw = (#tpl) as &str;
                 let mut s = ::std::string::String::with_capacity(raw.len() + 16);
-                let b = raw.as_bytes();
+                let chars: Vec<char> = raw.chars().collect();
                 let mut i = 0;
-                while i < b.len() {
-                    if b[i] == b'{' && i + 1 < b.len() && b[i+1] == b'{' {
+                let mut last = 0;
+
+                while i < chars.len() {
+                    if chars[i] == '{' && i + 1 < chars.len() && chars[i + 1] == '{' {
+                        s.push_str(&chars[last..i].iter().collect::<String>());
                         i += 2;
-                        while i < b.len() && b[i].is_ascii_whitespace() { i += 1; }
+                        while i < chars.len() && chars[i].is_whitespace() { i += 1; }
                         let start = i;
-                        while i < b.len() && b[i] != b'}' { i += 1; }
-                        let key = raw[start..i].trim();
-                        match key {
-                            #(#arms)*
-                            _ => { s.push_str("{{"); s.push_str(key); s.push_str("}}"); }
-                        }
+                        while i < chars.len() && chars[i] != '}' { i += 1; }
+                        let key = chars[start..i].iter().collect::<String>().trim().to_string();
                         i += 2;
-                    } else {
-                        match b[i] {
-                            b'{' => s.push_str("{{"),
-                            b'}' => s.push_str("}}"),
-                            _    => s.push(b[i] as char),
+                        match key.as_str() {
+                            #(#arms)*
+                            _ => {
+                                s.push_str("{{");
+                                s.push_str(&key);
+                                s.push_str("}}");
+                            }
                         }
+                        last = i;
+                    } else {
                         i += 1;
                     }
                 }
+
+                if last < chars.len() {
+                    s.push_str(&chars[last..].iter().collect::<String>());
+                }
+
                 s
             }}
         }
