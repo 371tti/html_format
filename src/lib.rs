@@ -116,7 +116,7 @@ pub fn html_format(input: TokenStream) -> TokenStream {
                         while i < b.len() && b[i].is_ascii_whitespace() { i += 1; }
                         let start = i;
                         while i < b.len() && b[i] != b'}' { i += 1; }
-                        let key = &raw[start..i].trim();
+                        let key = raw[start..i].trim();
                         match key {
                             #(#arms)*
                             _ => { s.push_str("{{"); s.push_str(key); s.push_str("}}"); }
